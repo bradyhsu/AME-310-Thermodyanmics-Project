@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<style>
+/* Cockpit theme: dark is selected on purpose (validated dark palette steps on the #191919 surface). */
+.viz-root {
+  color-scheme: dark;
+  --page: #0b0b0b; --surface-1: #191919; --surface-2: #222222;
+  --text-primary: #efefef; --text-secondary: #9c9c9c;
+  --grid: #303030; --axis: #474747; --border: rgba(255,255,255,0.10);
+  --series-1: #338ced; --series-2: #e76624; --series-3: #00a888; --series-4: #d28e05;
+  --good: #0aac23; --warning: #fbb315; --serious: #f18a59; --critical: #dc3c3d;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #0b0b0b; }
+body { font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #efefef; }
+#app { background: var(--page); color: var(--text-primary); padding: 10px; position: relative; outline: none; }
+.top { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+.phases { display: flex; gap: 2px; flex-wrap: wrap; }
+.chip { padding: 3px 8px; border-radius: 4px; background: var(--surface-1); color: var(--text-secondary); font-size: 12px; }
+.chip.done { color: var(--text-primary); }
+.chip.done::before { content: "✓ "; color: var(--good); }
+.chip.now { background: var(--series-1); color: #fff; font-weight: 600; }
+.stats { display: flex; gap: 16px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--text-primary); font-size: 15px; }
+.objective { margin: 8px 0; padding: 8px 12px; background: var(--surface-1); border-radius: 6px; border: 1px solid var(--border);
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; align-items: baseline; min-height: 58px; }
+.objective .ph-name { font-weight: 700; font-size: 15px; }
+.objective #objective { font-size: 14px; }
+.alerts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; min-height: 0; }
+.alert { font-weight: 700; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--critical); color: #fff; }
+.alert.amber { background: var(--warning); color: #0b0b0b; }
+.main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(330px, 1fr); gap: 10px; }
+.panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+#cut { width: 100%; display: block; }
+.feed { margin-top: 4px; font-size: 12px; color: var(--text-secondary); height: 76px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+.feed div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed .k { display: inline-block; width: 14px; }
+.feed .warn .k, .feed .fail .k { color: var(--critical); }
+.feed .score .k { color: var(--good); }
+.feed .phase { color: var(--text-primary); }
+.cockpit { display: flex; flex-direction: column; gap: 8px; }
+.pfd { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tile { background: var(--surface-2); border-radius: 4px; padding: 4px 8px; }
+.tile .l { color: var(--text-secondary); font-size: 11px; }
+.tile .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+#eicas { width: 100%; height: 118px; display: block; }
+.controls { display: grid; grid-template-columns: 96px 1fr; gap: 10px; align-items: stretch; }
+.lever-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; background: var(--surface-2); border-radius: 4px; padding: 6px 4px; }
+.lever-wrap .scale { display: flex; gap: 6px; align-items: stretch; height: 150px; }
+.lever-wrap .marks { display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; color: var(--text-secondary); text-align: right; }
+#lever { writing-mode: vertical-lr; direction: rtl; height: 150px; width: 28px; margin: 0; accent-color: var(--series-1); cursor: ns-resize; }
+#levval { font-weight: 700; font-variant-numeric: tabular-nums; }
+.buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start; }
+button { font: inherit; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 8px; cursor: pointer; text-align: left; user-select: none; }
+button:hover { background: #2c2c2c; }
+button .key { float: right; color: var(--text-secondary); font-size: 11px; border: 1px solid var(--axis); border-radius: 3px; padding: 0 4px; }
+button.on { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+button.on .key { color: #dfe9f7; border-color: #9cc4f2; }
+button.run.on { background: #0a7d1d; border-color: #0a7d1d; }
+button:disabled { opacity: .4; cursor: default; }
+.charts-bar { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 6px; }
+.charts-bar h3 { margin: 0; font-size: 14px; }
+.seg { display: inline-flex; background: var(--surface-1); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 4px 10px; background: transparent; color: var(--text-secondary); }
+.seg button.on { background: var(--surface-2); color: var(--text-primary); }
+.charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 900px) { .charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .main { grid-template-columns: 1fr; } }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; padding: 8px 8px 4px; }
+.card h4 { margin: 0; font-size: 13px; font-weight: 600; }
+.card .sub { color: var(--text-secondary); font-size: 11px; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; color: var(--text-secondary); margin: 3px 0 2px; min-height: 16px; font-variant-numeric: tabular-nums; }
+.legend .sw { display: inline-block; width: 12px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 4px; }
+.legend b { color: var(--text-primary); font-weight: 600; }
+.card canvas { width: 100%; height: 170px; display: block; cursor: crosshair; }
+.overlay { position: absolute; inset: 0; background: rgba(11,11,11,.86); display: flex; align-items: flex-start; justify-content: center; padding-top: 60px; z-index: 5; }
+.overlay.hidden { display: none; }
+.dialog { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; width: min(760px, 94%); max-height: 88%; overflow: auto; }
+.dialog h2 { margin: 0 0 4px; font-size: 20px; }
+.dialog p { color: var(--text-secondary); margin: 6px 0; }
+.dialog table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+.dialog td, .dialog th { padding: 3px 6px; border-bottom: 1px solid var(--grid); text-align: left; }
+.dialog td.n, .dialog th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.dialog .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dialog .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.dialog .actions button { padding: 8px 14px; }
+.dialog .primary { background: var(--series-1); border-color: var(--series-1); color: #fff; font-weight: 600; }
+.grade { font-size: 56px; font-weight: 800; line-height: 1; }
+.kbd { border: 1px solid var(--axis); border-radius: 3px; padding: 0 4px; font-size: 11px; color: var(--text-primary); }
+.paused { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; font-weight: 800; background: var(--surface-1); padding: 10px 24px; border-radius: 8px; border: 1px solid var(--border); z-index: 4; }
+.hint { color: var(--text-secondary); font-size: 11px; text-align: center; }
+</style></head>
+<body>
+<div id="app" class="viz-root" tabindex="0">
+  <div class="top">
+    <div class="phases" id="phases"></div>
+    <div class="stats">
+      <span>Score <b id="score">0</b></span>
+      <span>Mission time <b id="mtime">0:00</b></span>
+      <span>Sim speed <b id="warp">×1</b></span>
+    </div>
+  </div>
+  <div class="objective"><div class="ph-name" id="phname"></div><div id="objective"></div><div class="alerts" id="alerts"></div></div>
+  <div class="main">
+    <div class="panel"><canvas id="cut"></canvas><div class="feed" id="feed"></div></div>
+    <div class="panel cockpit">
+      <div class="pfd">
+        <div class="tile"><div class="l">Airspeed (IAS)</div><div class="v" id="t-ias">0 kt</div></div>
+        <div class="tile"><div class="l">Mach</div><div class="v" id="t-mach">0.000</div></div>
+        <div class="tile"><div class="l">Altitude</div><div class="v" id="t-alt">0 ft</div></div>
+        <div class="tile"><div class="l">Vertical speed</div><div class="v" id="t-vs">0 fpm</div></div>
+        <div class="tile"><div class="l">Net thrust (2 engines)</div><div class="v" id="t-thr">0 kN</div></div>
+        <div class="tile"><div class="l">Fuel burned</div><div class="v" id="t-fuel">0 kg</div></div>
+      </div>
+      <canvas id="eicas"></canvas>
+      <div class="controls">
+        <div class="lever-wrap">
+          <div class="scale"><div class="marks"><span>TO/GA</span><span>CLB</span><span></span><span></span><span>IDLE</span></div>
+            <input type="range" id="lever" min="0" max="100" step="1" value="0" aria-label="Thrust lever"></div>
+          <div>Lever <span id="levval">IDLE</span></div>
+        </div>
+        <div class="buttons">
+          <button id="b-start" title="Air starter: spins the HP spool">Starter <span class="key">S</span></button>
+          <button id="b-fuel" class="run" title="Fuel control switch">Fuel: CUTOFF <span class="key">F</span></button>
+          <button id="b-brk" title="Hold to brake">Brakes <span class="key">B hold</span></button>
+          <button id="b-rev" title="Reverse thrust (landing roll only)">Reverse <span class="key">R</span></button>
+          <button id="b-ff" title="Hold to run the simulation 4x faster">Fast-forward <span class="key">Space</span></button>
+          <button id="b-pause">Pause <span class="key">P</span></button>
+          <button id="b-idle">Lever idle <span class="key">End</span></button>
+          <button id="b-toga">Lever TO/GA <span class="key">Home</span></button>
+        </div>
+      </div>
+      <div class="hint">Thrust lever: hold <span class="kbd">↑</span>/<span class="kbd">↓</span>, or <span class="kbd">PgUp</span>/<span class="kbd">PgDn</span> for ±10%. Click the game first so it receives your keys.</div>
+    </div>
+  </div>
+  <div class="charts-bar">
+    <h3>Live charts</h3>
+    <div class="seg" id="win">
+      <button data-w="phase" class="on">This phase</button><button data-w="recent">Last 2 min</button><button data-w="all">Whole mission</button>
+    </div>
+  </div>
+  <div class="charts" id="charts"></div>
+  <div class="overlay" id="overlay"><div class="dialog" id="dialog"></div></div>
+  <div class="paused" id="paused" style="display:none">PAUSED</div>
+</div>
+
+<script>/*__SIM__*/</script>
+<script>/*__CUTAWAY__*/</script>
+<script>
+'use strict';
+const DATA = /*__DATA__*/null;
+const P = DATA.P, PH = Sim.PHASES, KT = Sim.KT, FT = Sim.FT;
+const CL = { surface: '#191919', surface2: '#222222', ink: '#efefef', ink2: '#9c9c9c', grid: '#303030', axis: '#474747',
+  s: ['#338ced', '#e76624', '#00a888', '#d28e05'], crit: '#dc3c3d', warn: '#fbb315', ref: '#707070' };
+const $ = id => document.getElementById(id);
+const fmtClock = t => { t = Math.max(0, t); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = Math.floor(t % 60);
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`; };
+const fmt = (v, d = 0) => (isFinite(v) ? v : 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+// ---------------------------------------------------------------- charts
+function niceStep(range, n) {
+  const raw = range / Math.max(1, n), p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p;
+}
+function tickLabel(v, step, maxAbs) {
+  if (maxAbs >= 10000) return fmt(v / 1000, step >= 1000 ? 0 : 1) + 'K';
+  const d = step >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(step) - 1e-9));
+  return fmt(v, d);
+}
+const T_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600];
+function lowerIdx(log, t) { let lo = 0, hi = log.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (log[m].t < t) lo = m + 1; else hi = m; } return lo; }
+
+class Plot {
+  constructor(card) {
+    this.card = card; this.cv = card.querySelector('canvas'); this.ctx = this.cv.getContext('2d'); this.hx = null; this.hy = null;
+    this.cv.addEventListener('pointermove', e => { const r = this.cv.getBoundingClientRect(); this.hx = e.clientX - r.left; this.hy = e.clientY - r.top; });
+    this.cv.addEventListener('pointerleave', () => { this.hx = null; });
+  }
+  size() {
+    const w = this.cv.clientWidth, h = this.cv.clientHeight, d = devicePixelRatio || 1;
+    if (this.cv.width !== Math.round(w * d) || this.cv.height !== Math.round(h * d)) { this.cv.width = Math.round(w * d); this.cv.height = Math.round(h * d); }
+    this.ctx.setTransform(d, 0, 0, d, 0, 0); return [w, h];
+  }
+  tooltip(x, y, title, rows, W, H) {
+    const c = this.ctx; c.font = '11px system-ui';
+    const tw = Math.max(c.measureText(title).width, ...rows.map(r => c.measureText(r[1]).width + 16)) + 16, th = 18 + rows.length * 15;
+    let bx = x + 12, by = Math.max(4, Math.min(H - th - 4, y - th / 2));
+    if (bx + tw > W - 4) bx = x - 12 - tw;
+    c.fillStyle = 'rgba(38,38,38,.96)'; c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 1;
+    c.beginPath(); c.roundRect(bx, by, tw, th, 4); c.fill(); c.stroke();
+    c.fillStyle = CL.ink2; c.fillText(title, bx + 8, by + 13);
+    rows.forEach(([col, txt], k) => { const yy = by + 28 + k * 15; if (col) { c.fillStyle = col; c.fillRect(bx + 8, yy - 6, 10, 3); } c.fillStyle = CL.ink; c.fillText(txt, bx + (col ? 24 : 8), yy); });
+  }
+}
+
+class TimeChart extends Plot {
+  // cfg: {title, sub, unit, series:[{key,label,color}], y:[min,max] | null, zero, ref:{key,label}, dec}
+  constructor(card, cfg) {
+    super(card); this.cfg = cfg;
+    const lg = card.querySelector('.legend');
+    this.vals = cfg.series.map(s => {
+      const it = document.createElement('span');
+      it.innerHTML = cfg.series.length > 1 || cfg.ref ? `<span class="sw" style="background:${s.color}"></span>${s.label} <b>–</b>` : `${s.label} <b>–</b>`;
+      lg.appendChild(it); return it.querySelector('b');
+    });
+    if (cfg.ref) { const it = document.createElement('span'); it.innerHTML = `<span class="sw" style="background:${CL.crit};height:1px"></span>${cfg.ref.label} <b>–</b>`; lg.appendChild(it); this.refVal = it.querySelector('b'); }
+  }
+  draw(log, t0, t1, marks) {
+    const [W, H] = this.size(), c = this.ctx, cfg = this.cfg; c.clearRect(0, 0, W, H);
+    const L = 46, R = 12, T = 8, B = 20, pw = W - L - R, ph = H - T - B;
+    if (!log.length || pw < 20) return;
+    t1 = Math.max(t1, t0 + 5);
+    const i0 = Math.max(0, lowerIdx(log, t0) - 1), i1 = log.length - 1;
+    const stride = Math.max(1, Math.floor((i1 - i0) / (pw * 2)));
+    let lo = Infinity, hi = -Infinity;
+    for (let i = i0; i <= i1; i += stride) for (const s of cfg.series) { const v = log[i][s.key]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (cfg.ref) for (let i = i0; i <= i1; i += stride) { const v = log[i][cfg.ref.key]; if (v > hi) hi = v; }
+    if (cfg.y) { lo = Math.min(lo, cfg.y[0]); hi = Math.max(hi, cfg.y[1]); }      // fixed range, grows only if data leaves it
+    if (cfg.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+    if (!(hi > lo)) { hi = lo + 1; }
+    const step = niceStep((hi - lo) || 1, 4); lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+    if (hi - lo < step) hi = lo + step;
+    const X = t => L + (t - t0) / (t1 - t0) * pw, Y = v => T + ph - (v - lo) / (hi - lo) * ph;
+    // grid + y ticks
+    c.font = '10px system-ui'; c.lineWidth = 1; c.textAlign = 'right'; c.textBaseline = 'middle';
+    const maxAbs = Math.max(Math.abs(lo), Math.abs(hi));
+    for (let v = lo; v <= hi + step / 2; v += step) {
+      const y = Math.round(Y(v)) + .5; c.strokeStyle = Math.abs(v) < step / 1e6 ? CL.axis : CL.grid;
+      c.beginPath(); c.moveTo(L, y); c.lineTo(L + pw, y); c.stroke();
+      c.fillStyle = CL.ink2; c.fillText(tickLabel(v, step, maxAbs), L - 6, y);
+    }
+    // x ticks (mission clock)
+    const span = t1 - t0, tStep = T_STEPS.find(s => span / s <= 5) || 3600;
+    c.textAlign = 'center'; c.textBaseline = 'top';
+    for (let t = Math.ceil(t0 / tStep) * tStep; t <= t1; t += tStep) { const x = X(t); c.fillStyle = CL.ink2; c.fillText(fmtClock(t), x, T + ph + 5); }
+    c.strokeStyle = CL.axis; c.beginPath(); c.moveTo(L, T + ph + .5); c.lineTo(L + pw, T + ph + .5); c.stroke();
+    // phase boundaries
+    c.save(); c.beginPath(); c.rect(L, T, pw, ph); c.clip();
+    let lastLab = -1e9;
+    for (const m of marks) {
+      if (m.t <= t0 || m.t > t1) continue;
+      const x = Math.round(X(m.t)) + .5; c.strokeStyle = CL.axis; c.beginPath(); c.moveTo(x, T); c.lineTo(x, T + ph); c.stroke();
+      if (x - lastLab > 56) { c.fillStyle = CL.ink2; c.textAlign = 'left'; c.textBaseline = 'top'; c.fillText(PH[m.pi].short, x + 3, T + 2); lastLab = x; }
+    }
+    // reference (limit) line, stepped
+    if (cfg.ref) {
+      c.strokeStyle = CL.crit; c.lineWidth = 1; c.beginPath();
+      for (let i = i0; i <= i1; i += stride) { const x = X(log[i].t), y = Math.round(Y(log[i][cfg.ref.key])) + .5; if (i === i0) c.moveTo(x, y); else c.lineTo(x, y); }
+      c.stroke();
+    }
+    // series
+    c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 2;
+    for (const s of cfg.series) {
+      c.strokeStyle = s.color; c.beginPath();
+      for (let i = i0; i <= i1; i += stride) { const x = X(log[i].t), y = Y(log[i][s.key]); if (i === i0) c.moveTo(x, y); else c.lineTo(x, y); }
+      const last = log[i1]; c.lineTo(X(last.t), Y(last[s.key])); c.stroke();
+    }
+    c.restore();
+    // end dots with surface ring
+    const last = log[i1];
+    for (const s of cfg.series) { const x = X(last.t), y = Y(last[s.key]); c.beginPath(); c.arc(x, y, 4, 0, 7); c.fillStyle = s.color; c.fill(); c.lineWidth = 2; c.strokeStyle = CL.surface; c.stroke(); }
+    // hover crosshair + tooltip; legend shows hovered or latest values
+    let row = last;
+    if (this.hx !== null && this.hx >= L && this.hx <= L + pw) {
+      const th = t0 + (this.hx - L) / pw * (t1 - t0); let k = lowerIdx(log, th); if (k > 0 && Math.abs(log[k - 1].t - th) < Math.abs(log[k].t - th)) k--;
+      row = log[Math.max(i0, Math.min(i1, k))];
+      const x = Math.round(X(row.t)) + .5; c.strokeStyle = CL.ink2; c.lineWidth = 1; c.beginPath(); c.moveTo(x, T); c.lineTo(x, T + ph); c.stroke();
+      for (const s of cfg.series) { c.beginPath(); c.arc(x, Y(row[s.key]), 4, 0, 7); c.fillStyle = s.color; c.fill(); c.lineWidth = 2; c.strokeStyle = CL.surface; c.stroke(); }
+      const rows = cfg.series.map(s => [s.color, `${s.label}: ${fmt(row[s.key], cfg.dec)} ${cfg.unit}`]);
+      if (cfg.ref) rows.push([CL.crit, `${cfg.ref.label}: ${fmt(row[cfg.ref.key], 0)} ${cfg.unit}`]);
+      this.tooltip(x, this.hy, `${fmtClock(row.t)} · ${PH[row.pi].name}`, rows, W, H);
+    }
+    cfg.series.forEach((s, k) => { this.vals[k].textContent = `${fmt(row[s.key], cfg.dec)} ${cfg.unit}`; });
+    if (this.refVal) this.refVal.textContent = `${fmt(row[cfg.ref.key], 0)} ${cfg.unit}`;
+  }
+}
+
+const ST_ORDER = ['0', '02', '013', '025', '03', '04', '45', '05', '9'];
+const ST_NAME = { '0': 'ambient', '02': 'inlet exit', '013': 'fan exit', '025': 'IPC exit', '03': 'HPC exit', '04': 'turbine entry (TET)',
+  '45': 'LPT inlet (TGT)', '05': 'LPT exit', '9': 'core nozzle exit' };
+const sOf = (T, p) => Sim.CP_A * Math.log(T / 288) - Sim.R_A * Math.log(p / 101325);
+class TsChart extends Plot {
+  constructor(card) {
+    super(card); this.ext = null;
+    card.querySelector('.legend').innerHTML = `<span><span class="sw" style="background:${CL.ref}"></span>Sea-level take-off design point</span>` +
+      `<span><span class="sw" style="background:${CL.s[0]}"></span>Engine now</span>`;
+    this.ref = ST_ORDER.map(k => [k, ...P.stations[k]]);
+  }
+  static path(st) {
+    const pts = [];
+    const seq = st.concat([st[0]]);
+    for (let k = 0; k < seq.length - 1; k++) {
+      const [, T1, p1] = seq[k], [, T2, p2] = seq[k + 1];
+      for (let j = 0; j <= 10; j++) { const u = j / 10, T = T1 * Math.pow(T2 / T1, u), p = p1 * Math.pow(p2 / p1, u); pts.push([sOf(T, p), T]); }
+    }
+    return pts;
+  }
+  draw(o) {
+    const [W, H] = this.size(), c = this.ctx; c.clearRect(0, 0, W, H);
+    const L = 46, R = 12, T = 8, B = 20, pw = W - L - R, ph = H - T - B;
+    const cur = [['0', o.T0, o.p0], ['02', o.T02, o.p02], ['013', o.T013, o.p013], ['025', o.T025, o.p025], ['03', o.T03, o.p03],
+      ['04', o.T04, o.p04], ['45', o.Tlp, o.plp], ['05', o.T05, o.p05], ['9', o.T9, o.p9]];
+    const rp = TsChart.path(this.ref), cp = TsChart.path(cur);
+    let ext = [Infinity, -Infinity, Infinity, -Infinity];
+    for (const [s, T] of rp.concat(cp)) { ext = [Math.min(ext[0], s), Math.max(ext[1], s), Math.min(ext[2], T), Math.max(ext[3], T)]; }
+    if (!this.ext) this.ext = ext; else this.ext = this.ext.map((v, k) => v + (ext[k] - v) * 0.08);   // ease the axes
+    let [s0, s1, T0, T1] = this.ext;
+    const sx = niceStep(s1 - s0 || 1, 4), ty = niceStep(T1 - T0 || 1, 4);
+    s0 = Math.floor(s0 / sx) * sx; s1 = Math.ceil(s1 / sx) * sx; T0 = Math.max(0, Math.floor(T0 / ty) * ty); T1 = Math.ceil(T1 / ty) * ty;
+    const X = s => L + (s - s0) / (s1 - s0) * pw, Y = t => T + ph - (t - T0) / (T1 - T0) * ph;
+    c.font = '10px system-ui'; c.lineWidth = 1;
+    c.textAlign = 'right'; c.textBaseline = 'middle';
+    for (let v = T0; v <= T1 + ty / 2; v += ty) { const y = Math.round(Y(v)) + .5; c.strokeStyle = CL.grid; c.beginPath(); c.moveTo(L, y); c.lineTo(L + pw, y); c.stroke(); c.fillStyle = CL.ink2; c.fillText(fmt(v), L - 6, y); }
+    c.textAlign = 'center'; c.textBaseline = 'top';
+    for (let v = s0; v <= s1 + sx / 2; v += sx) c.fillText(fmt(v), X(v), T + ph + 5);
+    c.strokeStyle = CL.axis; c.beginPath(); c.moveTo(L, T + ph + .5); c.lineTo(L + pw, T + ph + .5); c.stroke();
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    c.lineWidth = 1.5; c.strokeStyle = CL.ref; c.beginPath(); rp.forEach(([s, t], k) => k ? c.lineTo(X(s), Y(t)) : c.moveTo(X(s), Y(t))); c.stroke();
+    c.lineWidth = 2; c.strokeStyle = CL.s[0]; c.beginPath(); cp.forEach(([s, t], k) => k ? c.lineTo(X(s), Y(t)) : c.moveTo(X(s), Y(t))); c.stroke();
+    const dots = cur.map(([k, Tt, p]) => [k, X(sOf(Tt, p)), Y(Tt), Tt, p]);
+    for (const [k, x, y] of dots) { c.beginPath(); c.arc(x, y, 4, 0, 7); c.fillStyle = CL.s[0]; c.fill(); c.lineWidth = 2; c.strokeStyle = CL.surface; c.stroke(); }
+    c.fillStyle = CL.ink; c.textAlign = 'left'; c.textBaseline = 'bottom';
+    for (const [k, x, y] of dots) if (['03', '04', '05'].includes(k)) c.fillText(k, x + 6, y - 2);
+    c.fillStyle = CL.ink2; c.textAlign = 'right'; c.textBaseline = 'bottom'; c.fillText('s (J/kg·K)', L + pw, T + ph - 2);
+    if (this.hx !== null) {
+      let best = null, bd = 1e9; for (const d of dots) { const dd = Math.hypot(d[1] - this.hx, d[2] - this.hy); if (dd < bd) { bd = dd; best = d; } }
+      if (best && bd < 40) {
+        const [k, x, y, Tt, p] = best;
+        this.tooltip(x, y, `Station ${k}: ${ST_NAME[k]}`, [[null, `T = ${fmt(Tt)} K (${fmt(Tt - 273.15)} °C)`], [null, `p = ${fmt(p / 1000, 1)} kPa`], [null, `s = ${fmt(sOf(Tt, p))} J/kg·K`]], W, H);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- EICAS gauges
+function drawEicas(cv, o, m) {
+  const w = cv.clientWidth, h = cv.clientHeight, d = devicePixelRatio || 1, c = cv.getContext('2d');
+  if (cv.width !== Math.round(w * d)) { cv.width = Math.round(w * d); cv.height = Math.round(h * d); }
+  c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
+  const n1 = o.n[0] * P.w[0] / P.wref[0] * 100, n3 = o.n[2] * P.w[2] / P.wref[2] * 100, tgt = o.Tlp - 273.15, lim = m.tgtLimit();
+  const g = [
+    { label: 'N1', unit: '%', v: n1, max: 110, marks: [[102, CL.crit]], dec: 1 },
+    { label: 'N3', unit: '%', v: n3, max: 110, marks: [[102, CL.crit]], dec: 1 },
+    { label: 'TGT', unit: '°C', v: tgt, max: 1000, marks: [[lim, CL.warn], [Sim.LIM.over, CL.crit]], dec: 0, bad: tgt > lim },
+    { label: 'Fuel flow', unit: 'kg/s', v: o.mf, max: 4, marks: [], dec: 2 },
+  ];
+  const cw = w / g.length, r = Math.min(cw * 0.34, (h - 34) / 1.85), a0 = Math.PI * 0.8, a1 = Math.PI * 2.2;
+  g.forEach((q, k) => {
+    const cx = cw * (k + .5), cy = r + 10, f = Math.max(0, Math.min(1, q.v / q.max));
+    c.lineCap = 'round'; c.lineWidth = 6; c.strokeStyle = CL.grid; c.beginPath(); c.arc(cx, cy, r, a0, a1); c.stroke();
+    c.strokeStyle = q.bad ? CL.crit : CL.s[0]; c.beginPath(); c.arc(cx, cy, r, a0, a0 + (a1 - a0) * f); c.stroke();
+    c.lineCap = 'butt';
+    for (const [mv, col] of q.marks) { const a = a0 + (a1 - a0) * Math.min(1, mv / q.max); c.strokeStyle = col; c.lineWidth = 3;
+      c.beginPath(); c.moveTo(cx + Math.cos(a) * (r - 8), cy + Math.sin(a) * (r - 8)); c.lineTo(cx + Math.cos(a) * (r + 8), cy + Math.sin(a) * (r + 8)); c.stroke(); }
+    c.textAlign = 'center'; c.fillStyle = CL.ink; c.font = '600 15px system-ui'; c.textBaseline = 'middle';
+    c.fillText(fmt(q.v, q.dec), cx, cy + 2);
+    c.font = '10px system-ui'; c.fillStyle = CL.ink2; c.fillText(q.unit, cx, cy + 17);
+    c.font = '600 11px system-ui'; c.fillStyle = q.bad ? CL.crit : CL.ink2; c.fillText(q.bad ? `⚠ ${q.label}` : q.label, cx, cy + 0.59 * r + 16);
+  });
+}
+
+// ---------------------------------------------------------------- game state & UI
+let M = null, view = 'phase', paused = false, shown = 'brief', lastEv = 0, keys = {}, ffBtn = false, brkBtn = false, frameNo = 0;
+const cw = createCutaway($('cut'), DATA.geo, { dark: true });
+
+PH.forEach((p, k) => { const el = document.createElement('span'); el.className = 'chip'; el.id = 'ph' + k; el.textContent = p.short; $('phases').appendChild(el); });
+
+function card(title, sub) {
+  const el = document.createElement('div'); el.className = 'card';
+  el.innerHTML = `<h4>${title}</h4><div class="sub">${sub}</div><div class="legend"></div><canvas></canvas>`;
+  $('charts').appendChild(el); return el;
+}
+const charts = [
+  new TimeChart(card('Shaft speeds', 'Percent of Trent XWB 100% speed (2700 / 8200 / 12600 rpm)'),
+    { unit: '%', dec: 1, y: [0, 105], series: [{ key: 'n1', label: 'N1 (LP)', color: CL.s[0] }, { key: 'n2', label: 'N2 (IP)', color: CL.s[1] }, { key: 'n3', label: 'N3 (HP)', color: CL.s[2] }] }),
+  new TimeChart(card('Thrust vs drag, per engine', 'Energy equation: (T − D)V = W·dh/dt + mV·dV/dt, so a gap means climbing, descending or changing speed'),
+    { unit: 'kN', dec: 1, zero: true, series: [{ key: 'F', label: 'Net thrust', color: CL.s[0] }, { key: 'D', label: 'Drag + rolling resistance', color: CL.s[1] }] }),
+  new TimeChart(card('Turbine gas temperature (TGT, LPT inlet)', 'Limit steps: start 750, take-off 900 (5 min), max continuous 850 °C'),
+    { unit: '°C', dec: 0, y: [0, 1000], series: [{ key: 'tgt', label: 'TGT', color: CL.s[0] }], ref: { key: 'lim', label: 'Limit' } }),
+  new TimeChart(card('Stored-energy rate dE/dt per control volume', 'Unsteady first law: dE/dt = Ẇ_in − Ẇ_out + Σṁh − Q̇_out'),
+    { unit: 'MW', dec: 2, zero: true, series: [{ key: 'lp', label: 'LP spool', color: CL.s[0] }, { key: 'ip', label: 'IP spool', color: CL.s[1] }, { key: 'hp', label: 'HP spool', color: CL.s[2] }, { key: 'cb', label: 'Combustor', color: CL.s[3] }] }),
+  new TimeChart(card('Altitude', 'Flight profile, ft'),
+    { unit: 'ft', dec: 0, zero: true, series: [{ key: 'alt', label: 'Altitude', color: CL.s[0] }] }),
+];
+const ts = new TsChart(card('Live T–s diagram', 'Brayton cycle of the core right now (hover a station)'));
+
+function newMission() {
+  M = new Sim.Mission(P, DATA.mission); lastEv = 0; paused = false; view = 'phase'; setView('phase');
+  $('lever').value = 0; $('feed').innerHTML = ''; ts.ext = null;
+}
+function setView(w) { view = w; document.querySelectorAll('#win button').forEach(b => b.classList.toggle('on', b.dataset.w === w)); }
+document.querySelectorAll('#win button').forEach(b => b.onclick = () => setView(b.dataset.w));
+
+function setLever(v) { if (!M) return; M.ctl.lever = Math.max(0, Math.min(1, v)); $('lever').value = Math.round(M.ctl.lever * 100); }
+$('lever').addEventListener('input', e => setLever(e.target.value / 100));
+$('b-start').onclick = () => M && M.toggleStarter();
+$('b-fuel').onclick = () => M && M.toggleFuel();
+$('b-rev').onclick = () => M && M.setRev(!M.ctl.rev);
+$('b-pause').onclick = () => togglePause();
+$('b-idle').onclick = () => setLever(0);
+$('b-toga').onclick = () => setLever(1);
+for (const [id, set] of [['b-brk', v => brkBtn = v], ['b-ff', v => ffBtn = v]]) {
+  const b = $(id); b.addEventListener('pointerdown', () => set(true)); for (const ev of ['pointerup', 'pointerleave']) b.addEventListener(ev, () => set(false));
+}
+function togglePause() { if (shown !== 'none') return; paused = !paused; $('paused').style.display = paused ? 'block' : 'none'; }
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (['arrowup', 'arrowdown', ' ', 'pageup', 'pagedown', 'home', 'end'].includes(k)) e.preventDefault();
+  if (e.repeat && !['arrowup', 'arrowdown'].includes(k)) return;
+  keys[k] = true;
+  if (!M || shown !== 'none') { if (k === 'enter' && shown === 'brief') startMission(); return; }
+  if (k === 's') M.toggleStarter();
+  else if (k === 'f') M.toggleFuel();
+  else if (k === 'r') M.setRev(!M.ctl.rev);
+  else if (k === 'p') togglePause();
+  else if (k === 'pageup') setLever(M.ctl.lever + 0.1);
+  else if (k === 'pagedown') setLever(M.ctl.lever - 0.1);
+  else if (k === 'home') setLever(1);
+  else if (k === 'end') setLever(0);
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+addEventListener('blur', () => { keys = {}; });
+$('app').addEventListener('pointerdown', () => $('app').focus({ preventScroll: true }));
+
+// ---------------------------------------------------------------- dialogs
+function briefing() {
+  const o = M.o, a = Sim.isa(0, o.dISA);
+  shown = 'brief'; $('overlay').classList.remove('hidden');
+  $('dialog').innerHTML = `
+    <h2>Flight-cycle challenge</h2>
+    <p>Fly a complete engine cycle on a twin-engine wide-body powered by the engine you designed in the sidebar.
+    The autopilot flies the flight path; <b>you fly the engines</b>. Thrust decides how fast you accelerate, climb and slow down.
+    Every number comes from the unsteady first law applied to each spool and the combustor.</p>
+    <div class="cols"><div>
+      <table><tr><th>Mission</th><th></th></tr>
+        <tr><td>Day</td><td class="n">ISA ${o.dISA >= 0 ? '+' : ''}${o.dISA} K (${fmt(a.T - 273.15)} °C at sea level)</td></tr>
+        <tr><td>Take-off mass</td><td class="n">${fmt(o.tow / 1000)} t</td></tr>
+        <tr><td>Cruise</td><td class="n">FL${fmt(o.cruiseFt / 100)}, Mach 0.85</td></tr>
+        <tr><td>Phases</td><td class="n">Start · Taxi · Take-off · Climb · Cruise · Descent · Approach · Rollout · Taxi in · Shutdown</td></tr>
+      </table>
+      <table><tr><th>Scoring</th><th></th></tr>
+        <tr><td>Each phase</td><td class="n">up to +100 for flying it well</td></tr>
+        <tr><td>TGT above the active limit</td><td class="n">−0.5 per °C·s</td></tr>
+        <tr><td>Over-temperature (&gt; 920 °C)</td><td class="n">−100 each</td></tr>
+        <tr><td>Hot start, stall, overrun, hard landing</td><td class="n">mission over</td></tr>
+      </table></div><div>
+      <table><tr><th>Controls</th><th></th></tr>
+        <tr><td>Thrust lever</td><td class="n"><span class="kbd">↑</span> <span class="kbd">↓</span> hold · <span class="kbd">PgUp</span>/<span class="kbd">PgDn</span> · <span class="kbd">Home</span> TO/GA · <span class="kbd">End</span> idle</td></tr>
+        <tr><td>Air starter</td><td class="n"><span class="kbd">S</span></td></tr>
+        <tr><td>Fuel control switch</td><td class="n"><span class="kbd">F</span></td></tr>
+        <tr><td>Brakes</td><td class="n"><span class="kbd">B</span> hold</td></tr>
+        <tr><td>Reverse thrust</td><td class="n"><span class="kbd">R</span></td></tr>
+        <tr><td>Fast-forward ×4</td><td class="n"><span class="kbd">Space</span> hold</td></tr>
+        <tr><td>Pause</td><td class="n"><span class="kbd">P</span></td></tr>
+      </table>
+      <p>Long phases (climb, cruise, descent) run in accelerated time. The charts below plot every variable live as you fly.</p>
+    </div></div>
+    <div class="actions"><button class="primary" id="go">Start mission <span class="kbd">Enter</span></button></div>`;
+  $('go').onclick = startMission;
+}
+function startMission() { shown = 'none'; $('overlay').classList.add('hidden'); $('app').focus({ preventScroll: true }); }
+
+function debrief() {
+  shown = 'debrief'; setView('all'); $('overlay').classList.remove('hidden');
+  const ok = M.status === 'done', pens = Object.entries(M.pens);
+  const maxT = Math.max(...M.log.map(r => r.tgt));
+  $('dialog').innerHTML = `
+    <div style="display:flex;gap:18px;align-items:center">
+      <div class="grade">${M.letter}</div>
+      <div><h2>${ok ? 'Mission complete' : 'Mission failed'}</h2>
+        <p>${ok ? 'Engine shut down at the gate.' : '✖ ' + M.failMsg}</p>
+        <p>Score <b style="color:#efefef">${fmt(M.score)}</b> of ${Sim.MAX_SCORE} · fuel burned ${fmt(M.fuel)} kg · mission time ${fmtClock(M.t)} · peak TGT ${fmt(maxT)} °C</p></div>
+    </div>
+    <div class="cols"><div><table><tr><th>Graded item</th><th class="n">Points</th></tr>
+      ${M.grades.map(g => `<tr><td>${g.label}<br><span style="color:#9c9c9c;font-size:11px">${g.note || ''}</span></td><td class="n">+${g.q}</td></tr>`).join('') || '<tr><td>None yet</td><td></td></tr>'}
+    </table></div><div><table><tr><th>Penalty</th><th class="n">Points</th></tr>
+      ${pens.map(([k, v]) => `<tr><td>${k}</td><td class="n">−${fmt(v)}</td></tr>`).join('') || '<tr><td>None, clean flight</td><td></td></tr>'}
+    </table><p>Grades: S ≥ 90%, A ≥ 80%, B ≥ 65%, C ≥ 50% of ${Sim.MAX_SCORE}.</p></div></div>
+    <div class="actions"><button class="primary" id="again">Fly again</button><button id="csv">Download flight log (CSV)</button><button id="close">Inspect the charts</button></div>`;
+  $('again').onclick = () => { newMission(); briefing(); };
+  $('close').onclick = () => { $('overlay').classList.add('hidden'); shown = 'inspect'; };
+  $('csv').onclick = () => {
+    const cols = Object.keys(M.log[0]).filter(k => k !== 'pi');
+    const rows = [['phase', ...cols].join(',')].concat(M.log.map(r => [PH[r.pi].id, ...cols.map(k => +r[k].toFixed(4))].join(',')));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
+    a.download = 'flight_log.csv'; document.body.appendChild(a); a.click(); a.remove();
+  };
+}
+
+// ---------------------------------------------------------------- per-frame UI
+const ICON = { info: '•', warn: '⚠', fail: '✖', score: '✓', phase: '▶' };
+function pushFeed(e) {
+  const d = document.createElement('div'); d.className = e.kind;
+  d.innerHTML = `<span class="k">${ICON[e.kind] || '•'}</span>${fmtClock(e.t)}  ${e.msg}`;
+  $('feed').appendChild(d); while ($('feed').children.length > 5) $('feed').firstChild.remove();
+}
+function updateUI() {
+  const o = M.out, ac = M.ac, a = M.air, c = M.ctl;
+  PH.forEach((p, k) => { const el = $('ph' + k); el.className = 'chip' + (k < M.pi || M.status === 'done' ? ' done' : k === M.pi ? ' now' : ''); });
+  $('score').textContent = fmt(M.score); $('mtime').textContent = fmtClock(M.t);
+  $('warp').textContent = paused ? 'paused' : `×${fmt(M.warp, M.warp % 1 ? 1 : 0)}`;
+  $('phname').textContent = M.phase.name;
+  $('objective').textContent = M.status === 'play' ? M.objective() : M.status === 'done' ? 'Mission complete.' : M.failMsg;
+  $('alerts').innerHTML = M.warn.map(w => `<span class="alert${w === 'OVERSPEED' || w === 'MACH' ? ' amber' : ''}">⚠ ${w}</span>`).join('');
+  $('t-ias').textContent = `${fmt(a.ias)} kt`; $('t-mach').textContent = fmt(a.mach, 3);
+  $('t-alt').textContent = `${fmt(ac.h / FT)} ft`; $('t-vs').textContent = `${fmt(ac.vs / FT * 60)} fpm`;
+  $('t-thr').textContent = `${fmt(2 * o.F / 1000, 1)} kN`; $('t-fuel').textContent = `${fmt(M.fuel)} kg`;
+  $('levval').textContent = c.lever < 0.005 ? 'IDLE' : `${fmt(c.lever * 100)}%`;
+  if (document.activeElement !== $('lever')) $('lever').value = Math.round(c.lever * 100);
+  $('b-start').classList.toggle('on', c.starter);
+  $('b-fuel').classList.toggle('on', c.fuelOn); $('b-fuel').firstChild.textContent = c.fuelOn ? 'Fuel: RUN ' : 'Fuel: CUTOFF ';
+  $('b-brk').classList.toggle('on', c.brakes); $('b-rev').classList.toggle('on', c.rev); $('b-ff').classList.toggle('on', c.ff);
+  $('b-pause').classList.toggle('on', paused);
+  drawEicas($('eicas'), o, M);
+}
+function drawCharts() {
+  const log = M.log, now = M.t, marks = M.marks;
+  let t0 = 0;
+  if (view === 'phase') t0 = marks[marks.length - 1].t; else if (view === 'recent') t0 = Math.max(0, now - 120);
+  const t1 = view === 'phase' ? Math.max(now, t0 + 20) : view === 'recent' ? Math.max(now, 120) : Math.max(now, 30);
+  for (const ch of charts) ch.draw(log, t0, t1, marks);
+  ts.draw(M.out);
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; frameNo++;
+  if (M && shown === 'none' && !paused && M.status === 'play') {
+    if (keys['arrowup']) setLever(M.ctl.lever + 0.35 * dt);
+    if (keys['arrowdown']) setLever(M.ctl.lever - 0.35 * dt);
+    M.ctl.brakes = !!keys['b'] || brkBtn;
+    M.ctl.ff = !!keys[' '] || ffBtn;
+    M.step(dt);
+  }
+  if (M) {
+    for (; lastEv < M.events.length; lastEv++) pushFeed(M.events[lastEv]);
+    const o = M.out, rpm = k => o.n[k] * P.w[k] * 60 / (2 * Math.PI);
+    cw.draw({ n1: rpm(0), n2: rpm(1), n3: rpm(2), T013: o.T013, T025: o.T025, T03: o.T03, T04: o.T04, tgt: o.Tlp, T05: o.T05, flow: o.mt / P.mt },
+            paused || shown === 'brief' ? 0 : dt, []);
+    updateUI();
+    if (frameNo % 3 === 0 || shown !== 'none') drawCharts();
+    if (M.status !== 'play' && shown === 'none') debrief();
+  }
+  requestAnimationFrame(loop);
+}
+newMission(); briefing();
+requestAnimationFrame(loop);
+</script>
+</body></html>

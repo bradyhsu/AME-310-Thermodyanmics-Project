@@ -9,7 +9,7 @@ Stations: 0 ambient, 02 inlet exit, 013 fan exit, 025 IPC exit, 03 HPC exit,
 04 turbine entry (TET), 05 LPT exit, 9 core nozzle exit.   Pure Python, no dependencies.
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import exp, log, pi, sqrt
 
 R_AIR, G0 = 287.0, 9.80665
@@ -43,7 +43,7 @@ class Inputs:
     fan_pr: float = 1.5
     n_comp: int = 14           # IPC + HPC (XWB 8 + 6)
     n_turb: int = 9            # HPT + IPT + LPT (XWB 1 + 2 + 6)
-    tet: float = 1720.0
+    far: float = 0.0249        # fuel-air ratio (kg fuel per kg core air); TET is a RESULT
     fan_dia: float = 3.0
     fuel: str = "Jet A"
     stage_pr: float = 1.28
@@ -116,7 +116,11 @@ def solve(i: Inputs) -> Result:
     pr_ipc, pr_hpc = i.stage_pr ** r.n_ipc, i.stage_pr ** r.n_hpc
     T025, p025 = T013 * pr_ipc ** (k / i.eta_comp), p013 * pr_ipc
     T03, p03 = T025 * pr_hpc ** (k / i.eta_comp), p025 * pr_hpc
-    p04, T04 = p03 * (1 - i.burner_dp), i.tet
+    p04 = p03 * (1 - i.burner_dp)
+    lhv_j = FUELS_MJ_PER_KG[i.fuel] * 1e6
+    # combustor first law per kg core air: (1+f) cp_h T04 = cp_a T03 + f eta_b LHV
+    T04 = (CP_AIR * T03 + i.far * i.eta_burner * lhv_j) / ((1 + i.far) * CP_HOT)
+    r.f = i.far
     r.T = {"0": i.T0, "02": T02, "013": T013, "025": T025, "03": T03, "04": T04}
     r.p = {"0": p0, "02": p02, "013": p013, "025": p025, "03": p03, "04": p04}
     r.opr = p03 / p02
@@ -132,11 +136,9 @@ def solve(i: Inputs) -> Result:
     r.rpm, r.fan_tip_speed = rpm, U_fan
     r.fan_tip_mach = U_fan / sqrt(GAMMA_AIR * R_AIR * T02)
 
-    den = i.eta_burner * lhv - CP_HOT * T04
-    r.f = (CP_HOT * T04 - CP_AIR * T03) / den if den > 0 else -1
-    if r.f <= 0:
+    if i.far <= 0:
         r.ok = False
-        r.warnings.append("TET is below compressor exit temperature: no heat can be added.")
+        r.warnings.append("No fuel: fuel-air ratio must be positive.")
         return r
 
     area = pi / 4 * i.fan_dia ** 2 * (1 - i.hub_ratio ** 2)
@@ -183,6 +185,8 @@ def solve(i: Inputs) -> Result:
         r.warnings.append(f"TGT {tgt_c:.0f} C exceeds the {L['max_continuous']:.0f} C max-continuous limit.")
     if r.thrust <= 0:
         r.warnings.append("Net thrust is zero or negative.")
+    if T04 > 2050:
+        r.warnings.append(f"TET {T04:.0f} K is beyond practical blade materials and cooling (about 2050 K).")
     if r.fan_tip_mach > 1.6:
         r.warnings.append(f"Fan tip relative speed is high (M~{r.fan_tip_mach:.2f}).")
     return r
@@ -270,12 +274,53 @@ def v_of(T, p):
     return R_AIR * T / p
 
 
+def far_for_tet(i: Inputs, tet: float) -> float:
+    """Fuel-air ratio that produces a given TET for these inputs (inverse of the combustor balance)."""
+    T03 = solve(replace(i, far=0.02)).T["03"]
+    lhv = FUELS_MJ_PER_KG[i.fuel] * 1e6
+    return (CP_HOT * tet - CP_AIR * T03) / (i.eta_burner * lhv - CP_HOT * tet)
+
+
+def tgt_suggestions(i: Inputs, limit_c: float = 900.0):
+    """Design changes that bring TGT (LPT inlet) to or below limit_c. Returns (baseline, options)."""
+    base = solve(i)
+    if not base.ok or base.tgt - 273.15 <= limit_c:
+        return base, []
+    lim = limit_c + 273.15
+    opts = []
+
+    def add(lever, change, res):
+        opts.append(dict(lever=lever, change=change, tgt_c=res.tgt - 273.15, tet_k=res.T["04"],
+                         thrust_kn=res.thrust / 1e3, d_thrust_pct=(res.thrust / base.thrust - 1) * 100,
+                         tsfc=res.tsfc, opr=res.opr))
+
+    lo, hi = 0.002, i.far                                   # 1) burn less fuel (throttle back)
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        rm = solve(replace(i, far=mid))
+        lo, hi = (mid, hi) if rm.ok and rm.tgt <= lim else (lo, mid)
+    rm = solve(replace(i, far=lo))
+    if rm.ok and rm.tgt <= lim:
+        add("Reduce fuel flow", f"Fuel-air ratio {i.far*100:.2f}% to {lo*100:.2f}%", rm)
+    for n in range(i.n_comp + 1, 21):                       # 2) more core compressor stages
+        rm = solve(replace(i, n_comp=n))
+        if rm.ok and rm.tgt <= lim:
+            add("Add compressor stages", f"Stages {i.n_comp} to {n} (same fuel-air ratio)", rm); break
+    x = i.fan_pr                                            # 3) higher fan pressure ratio
+    while x < 1.8:
+        x = round(x + 0.01, 2)
+        rm = solve(replace(i, fan_pr=x))
+        if rm.ok and rm.tgt <= lim:
+            add("Raise fan pressure ratio", f"Fan PR {i.fan_pr:.2f} to {x:.2f} (same fuel-air ratio)", rm); break
+    return base, opts
+
+
 PRESETS = {  # name -> (Inputs, altitude m, ISA offset K)
     "Trent XWB-84 take-off (SL, ISA)": (Inputs(), 0, 0),
-    "XWB cruise (FL350, M0.85)": (Inputs(V0=252, tet=1580), 10668, 0),
+    "XWB cruise (FL350, M0.85)": (Inputs(V0=252, far=0.02397), 10668, 0),
     "Hot day take-off (ISA+40)": (Inputs(), 0, 40),
     "Smaller 5:1 engine, 7.5 km": (Inputs(V0=200, bypass=5, fan_pr=1.6, n_comp=10, n_turb=6,
-                                          tet=1450, fan_dia=1.8), 7500, 0),
+                                          fan_dia=1.8, far=0.02488), 7500, 0),
 }
 
 if __name__ == "__main__":
